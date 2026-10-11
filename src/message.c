@@ -1721,7 +1721,7 @@ static void handle_domain_display(FILE *rsp, struct token domain, char *message)
         struct selector selector = parse_display_selector(rsp, &message, acting_did, false);
         if (selector.did_parse && selector.did) {
             if (acting_did != selector.did) {
-                display_manager_focus_display(selector.did, display_space_id(selector.did));
+                display_manager_focus_display(selector.did, display_space_id(selector.did), true);
             } else {
                 daemon_fail(rsp, "cannot focus an already focused display.\n");
             }

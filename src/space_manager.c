@@ -931,7 +931,7 @@ bool space_manager_focus_space_using_gesture(uint32_t new_did, uint64_t new_sid)
 
     int count = abs(new_index - cur_index);
     if (count == 0) {
-        display_manager_focus_display(new_did, new_sid);
+        display_manager_focus_display(new_did, new_sid, true);
         return true;
     }
 
@@ -999,7 +999,7 @@ enum space_op_error space_manager_focus_space(uint64_t sid)
 
     if (scripting_addition_focus_space(sid)) {
         if (focus_display) {
-            display_manager_focus_display(new_did, sid);
+            display_manager_focus_display(new_did, sid, true);
         }
     } else {
         space_manager_focus_space_using_gesture(new_did, sid);
@@ -1027,7 +1027,7 @@ enum space_op_error space_manager_switch_space(uint64_t sid)
 
     if (cur_did != did) {
         space_manager_swap_space_with_space_on_display(cur_did, cur_sid, did, sid);
-        display_manager_focus_display(cur_did, cur_sid);
+        display_manager_focus_display(cur_did, cur_sid, true);
         return SPACE_OP_ERROR_SUCCESS;
     }
 

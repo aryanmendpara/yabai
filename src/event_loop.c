@@ -1346,7 +1346,6 @@ static EVENT_HANDLER(MOUSE_MOVED)
 {
     if (g_window_manager.ffm_mode == FFM_DISABLED) goto out;
     if (mission_control_is_active())               goto out;
-    if (g_mouse_state.ffm_window_id)               goto out;
 
     if (__atomic_load_n(&__pending_gesture, __ATOMIC_RELAXED)) goto out;
     uint64_t last_gesture_time = __atomic_load_n(&__last_gesture_time, __ATOMIC_RELAXED);
@@ -1356,10 +1355,30 @@ static EVENT_HANDLER(MOUSE_MOVED)
     CGPoint point = CGEventGetLocation(context);
     struct window *window = window_manager_find_window_at_point(&g_window_manager, point);
 
-    if (window) {
-        if (window->id == g_window_manager.focused_window_id) goto out;
-        if (!window_manager_is_window_eligible(window))       goto out;
+    //
+    // Display focus follows the cursor onto a windowless display. This has to
+    // run before the ffm_window_id latch below, otherwise a raised window keeps
+    // the latch set and moving onto an empty display would never focus it.
+    // Mirror `display --focus` (focus the top window on the target display and
+    // activate it) but without warping the cursor.
+    //
 
+    if (!window) {
+        uint32_t cursor_did = display_manager_point_display_id(point);
+        if (cursor_did && cursor_did != display_manager_active_display_id()) {
+            CGRect bounds = display_bounds_constrained(cursor_did, false);
+            if (cgrect_contains_point(bounds, point)) {
+                display_manager_focus_display(cursor_did, display_space_id(cursor_did), false);
+            }
+        }
+        goto out;
+    }
+
+    if (g_mouse_state.ffm_window_id)               goto out;
+    if (window->id == g_window_manager.focused_window_id) goto out;
+    if (!window_manager_is_window_eligible(window))       goto out;
+
+    if (window) {
         if (g_window_manager.ffm_mode == FFM_AUTOFOCUS) {
 
             //
@@ -1433,16 +1452,6 @@ static EVENT_HANDLER(MOUSE_MOVED)
                 g_mouse_state.ffm_window_id = window->id;
             }
         }
-    } else {
-        uint32_t cursor_did = display_manager_point_display_id(point);
-        if (g_display_manager.current_display_id == cursor_did) goto out;
-
-        CGRect bounds = display_bounds_constrained(cursor_did, false);
-        if (!cgrect_contains_point(bounds, point)) goto out;
-
-        uint32_t wid = display_manager_focus_display_with_window_at_point(point);
-        if (!wid) display_manager_set_active_display_id(cursor_did);
-        g_mouse_state.ffm_window_id = wid;
     }
 
 out:

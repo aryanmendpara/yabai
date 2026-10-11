@@ -1,5 +1,6 @@
 extern struct display_manager g_display_manager;
 extern struct window_manager g_window_manager;
+extern struct mouse_state g_mouse_state;
 extern int g_connection;
 
 bool display_manager_query_displays(FILE *rsp, uint64_t flags)
@@ -460,16 +461,21 @@ void display_manager_set_active_display_id(uint32_t did)
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-void display_manager_focus_display(uint32_t did, uint64_t sid)
+void display_manager_focus_display(uint32_t did, uint64_t sid, bool warp_mouse)
 {
     struct window *window = window_manager_find_window_on_space_by_rank_filtering_window(&g_window_manager, sid, 1, 0);
     if (window) {
+        // NOTE(venus): mark the window as the ffm target so the resulting focus
+        // callback does not center the cursor on it; when warp_mouse is false
+        // the cursor must stay where the user left it.
+        if (!warp_mouse) g_mouse_state.ffm_window_id = window->id;
+
         window_manager_focus_window_with_raise(&window->application->psn, window->id, window->ref);
-        window_manager_center_mouse(&g_window_manager, window);
+        if (warp_mouse) window_manager_center_mouse(&g_window_manager, window);
         display_manager_set_active_display_id(did);
     } else {
         CGPoint point = display_center(did);
-        CGWarpMouseCursorPosition(point);
+        if (warp_mouse) CGWarpMouseCursorPosition(point);
         display_manager_set_active_display_id(did);
 
         if (space_manager_active_space() != display_space_id(did)) {

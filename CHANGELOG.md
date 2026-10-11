@@ -6,6 +6,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 ### Added
+- Moving the cursor onto a display now focuses that display (focus follows the cursor across displays), without warping the cursor
 - macOS 27 Apple Silicon scripting-addition offsets for *dock.spaces*, *dppm*, *add_space*, *remove_space*, *move_space* and animation-time hooks
 - `scripts/deploy.sh`: build, sign, install and reload a locally built yabai
 - Step-by-step build guide for macOS 27.0: [`doc/BUILD-macOS-27.md`](doc/BUILD-macOS-27.md)
