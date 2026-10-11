@@ -12,6 +12,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Step-by-step build guide for macOS 27.0: [`doc/BUILD-macOS-27.md`](doc/BUILD-macOS-27.md)
 
 ### Changed
+- `mouse_follows_focus` now warps the cursor only when focus crosses a display boundary; same-display focus changes leave the cursor untouched
 - Fixed new windows opening on the wrong display when `window_origin_display` is set to `focused` (or `cursor`): a new window is now physically moved to the origin space instead of only being tiled within the space the system created it on
 - Fixed the main binary not recognizing macOS 27, which silently disabled Mission Control observation, the space/window connection notifications (1327/1328/804) and the Tahoe window sub-level query; macOS 27 is now treated as Tahoe-compatible
 - Fixed scripting-addition failing to load on macOS 14.4+/26/27 when the `-arm64e_preview_abi` boot-arg is missing or cannot be set [#2741](https://github.com/asmvik/yabai/issues/2741)

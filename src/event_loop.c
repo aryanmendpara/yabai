@@ -43,7 +43,10 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
     window_manager_set_window_opacity(wm, window, wm->active_window_opacity);
 
     if (wm->focused_window_id != window->id) {
-        if (ms->ffm_window_id != window->id) {
+        // NOTE(venus): only warp the cursor when focus crosses a display boundary;
+        // warping on same-display focus changes is too jumpy.
+        if (ms->ffm_window_id != window->id && focused_window &&
+            window_display_id(focused_window->id) != window_display_id(window->id)) {
             window_manager_center_mouse(wm, window);
         }
 
