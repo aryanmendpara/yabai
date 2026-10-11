@@ -404,54 +404,6 @@ uint32_t *display_manager_active_display_list(int *count)
     return result;
 }
 
-static AXUIElementRef display_manager_find_element_at_point(CGPoint point)
-{
-    AXUIElementRef element_ref = NULL;
-    AXUIElementCopyElementAtPosition(g_window_manager.system_element, point.x, point.y, &element_ref);
-    if (!element_ref) return NULL;
-
-    CFTypeRef role = NULL;
-    AXUIElementCopyAttributeValue(element_ref, kAXRoleAttribute, &role);
-    if (!role) return NULL;
-
-    if (CFEqual(role, kAXWindowRole)) {
-        CFRelease(role);
-        return element_ref;
-    }
-
-    CFTypeRef window_ref = NULL;
-    AXUIElementCopyAttributeValue(element_ref, kAXWindowAttribute, &window_ref);
-    CFRelease(element_ref);
-    CFRelease(role);
-    return window_ref;
-}
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-uint32_t display_manager_focus_display_with_window_at_point(CGPoint point)
-{
-    int element_connection;
-    ProcessSerialNumber element_psn;
-
-    AXUIElementRef element_ref = display_manager_find_element_at_point(point);
-    if (!element_ref) goto out;
-
-    uint32_t element_id = ax_window_id(element_ref);
-    if (!element_id) goto err_ref;
-
-    SLSGetWindowOwner(g_connection, element_id, &element_connection);
-    SLSGetConnectionPSN(element_connection, &element_psn);
-    window_manager_focus_window_with_raise(&element_psn, element_id, element_ref);
-    CFRelease(element_ref);
-    return element_id;
-
-err_ref:
-    CFRelease(element_ref);
-out:
-    return 0;
-}
-#pragma clang diagnostic pop
-
 void display_manager_set_active_display_id(uint32_t did)
 {
     CFStringRef uuid = display_uuid(did);
