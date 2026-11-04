@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [7.1.28-macos27.1] - 2026-11-04
+
+### Fixed
+- Space reordering on macOS 27.2 (`26B123`): `space --move`, `space --swap`, `space --display` and `window --space` / `window --display` work again. The Dock no longer exposes its internal `moveSpace` function and the `DPDesktopPictureManager` class was removed, so the scripting-addition now calls `CGSMoveManagedSpaceToDisplayIndex` — the same CoreGraphics API the Dock's own `DockCore` code uses when spaces are rearranged in Mission Control — and keeps the legacy `moveSpace` + `dppm` path for older macOS.
+- Bumped the scripting-addition payload to `2.1.33` so an older installed payload is replaced on the next load.
+
+### Verified
+- macOS 27.2 `26B123`, Apple Silicon (`arm64e`), single display: space focus by index/`next`/`prev`/`recent`, `space --move`/`--swap`, `window --space` (including chained `--focus`), `window --display`, and space create/destroy. Dock stayed alive throughout and Mission Control still opens and closes. Cross-display moves were not exercised (only one display attached).
+
 ## [7.1.28] - 2026-11-04
 
 ### Added

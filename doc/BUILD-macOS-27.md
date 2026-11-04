@@ -6,30 +6,59 @@ just want a working yabai on macOS 27, follow it top to bottom.
 
 ## What this fork changes
 
-Three things differ from upstream `asmvik/yabai`:
+Four things differ from upstream `asmvik/yabai`:
 
-1. **macOS 27 scripting-addition offsets** (`src/osax/arm64_payload.m`,
+1. **macOS 27 scripting-addition support** (`src/osax/arm64_payload.m`,
    `src/osax/common.h`, `src/osax/payload.m`).
-   The scripting-addition (SA) locates private Dock/SkyLight symbols by fixed
-   offsets. macOS 27 moved several of them, so upstream's offsets fail to
-   resolve and space operations (`space --create`, `--destroy`, `--move`, …)
-   break. This fork adds the macOS 27 offsets:
+   The scripting-addition (SA) locates private Dock symbols by scanning a
+   window of Dock's `__TEXT` for a byte signature. macOS 27 moved several of
+   them, so upstream's windows/signatures fail to resolve and space operations
+   (`space --create`, `--destroy`, `--move`, …) break. This fork adds macOS 27
+   windows and signatures:
 
-   | Symbol | macOS 27 offset |
-   |-:|:-|
-   | `dock.spaces` | `0x30000` (shared with macOS 26) |
-   | `dppm` (DesktopPictureManager) | `0x40000` |
-   | `fix_animation` | `0x200000` |
-   | `add_space` | `0x200000` |
-   | `remove_space` | `0x150000` |
-   | `move_space` | `0x150000` |
-   | `set_front_window` | `0x10000` (shared with macOS 26) |
+   | Symbol | macOS 27 search window | Resolves? |
+   |-:|:-|:-|
+   | `dock.spaces` | `0x20000` | yes (`0x329be0` on 26B123) |
+   | `fix_animation` | `0x160000` | yes |
+   | `add_space` | `0x160000` | yes (`0x18a750`) |
+   | `remove_space` | `0x120000` | yes (`0x12dbcc`) |
+   | `dppm` (`DPDesktopPictureManager`) | — | no, class removed in 27.2 |
+   | `move_space` | — | no, function removed in 27.2 (see item 2) |
+   | `set_front_window` | — | no, hook is disabled |
 
-   `OSAX_ATTRIB_SET_WINDOW` is intentionally no longer part of
-   `OSAX_ATTRIB_ALL` (its only caller is disabled), so the SA still validates
-   even though the `setFrontWindow` hook is not located on macOS 27.
+2. **Space reordering on macOS 27.2** (`src/osax/payload.m`).
+   Upstream moves spaces by calling a Dock-internal `moveSpace` function and
+   then `-[DPDesktopPictureManager moveSpace:toDisplay:displayUUID:]` to keep
+   wallpaper bookkeeping in sync. On macOS 27.2 the Dock no longer exposes
+   `moveSpace` and the `DPDesktopPictureManager` class is gone (wallpaper is
+   now handled by Dock's `WallpaperAgent`), so `space --move`, `space --swap`
+   and `window --space` silently did nothing.
 
-2. **Scripting-addition load fix** (`src/sa.m`).
+   This fork instead calls the same CoreGraphics API the 27.2 Dock itself uses
+   from its Swift `DockCore` code when spaces are rearranged in Mission
+   Control:
+
+   ```c
+   int CGSMoveManagedSpaceToDisplayIndex(int cid, uint64_t space_id,
+                                         CFStringRef display_uuid, uint32_t index);
+   ```
+
+   The symbol is exported by CoreGraphics but not present in the arm64e SDK
+   stubs, so it is resolved at runtime with `dlsym(RTLD_DEFAULT, …)`. The
+   destination `index` is 0-based, counted within the destination display's
+   space list **with the source space removed**, which makes
+   `index(destination) + 1` equivalent to "place the source directly after the
+   destination". Older macOS keeps the original `moveSpace` + `dppm` path
+   because the CGS symbol is only used when it resolves.
+
+   Consequences on macOS 27: `dppm`/`moveSpace` diagnostics are expected and
+   harmless, the payload logs `using CGSMoveManagedSpaceToDisplayIndex`, and
+   every space-order change goes through SkyLight/Dock, so Mission Control
+   stays in sync. `setFrontWindow` still does not resolve and its only caller
+   is disabled (`OSAX_ATTRIB_SET_WINDOW` is no longer part of
+   `OSAX_ATTRIB_ALL`), so the SA still validates.
+
+3. **Scripting-addition load fix** (`src/sa.m`).
    Upstream refuses to inject the SA on arm64 unless the boot-arg
    `-arm64e_preview_abi` is present. That boot-arg is only needed for the
    `thread_convert_thread_state()` injection path used before macOS 14.4, and
@@ -37,7 +66,7 @@ Three things differ from upstream `asmvik/yabai`:
    requires it on macOS < 14.4, which makes `yabai --load-sa` work again on
    26/27.
 
-3. **Main-binary macOS 27 recognition** (`src/workspace.m`).
+4. **Main-binary macOS 27 recognition** (`src/workspace.m`).
    `src/workspace.h` only lists macOS versions up to Tahoe (26), and the main
    binary matches a major version **exactly**, so on macOS 27 every
    `workspace_is_macos_*()` predicate returned `false`. The binary then
@@ -49,6 +78,10 @@ Three things differ from upstream `asmvik/yabai`:
    aliases `majorVersion >= 27` to `26` before the version predicates are
    computed, restoring the Tahoe behaviour. If Apple changes one of these APIs
    in a later 27.x build, this is the first place to look.
+
+Note: yabai's `mission_control_is_active()` relies on the AX notification for
+Mission Control, which no longer fires on macOS 27. Mission Control itself
+still works; yabai only loses the "is Mission Control open?" guard.
 
 ## Prerequisites
 
@@ -182,21 +215,38 @@ covers login (the service sources `yabairc` at startup).
 ## 8. Verify
 
 ```
-yabai -m query --spaces          # should list your spaces
+yabai -m query --spaces          # list spaces
 yabai -m space --create          # exercises the add_space SA hook
 yabai -m space <n> --destroy     # exercises the remove_space SA hook
+yabai -m space --move next       # exercises CGSMoveManagedSpaceToDisplayIndex
+yabai -m space --swap <n>        # same code path as --move
+yabai -m window <id> --space <n> # moves a window to another space
 ```
 
-If `--create` succeeds, the macOS 27 offsets are resolving correctly. The
-payload also logs each resolved hook address:
+If `--create`/`--destroy` and `--move`/`--swap` succeed, the macOS 27 hooks
+are resolving correctly. The payload logs each resolved hook at injection
+time:
 
 ```
 sudo log show --last 2m --info --predicate 'eventMessage CONTAINS "yabai-sa"'
 ```
 
-Look for `dock.spaces found at address …`, `addSpace found at address …`, etc.
-`failed to get pointer to setFrontWindow function..` is expected and harmless
-(see [What this fork changes](#what-this-fork-changes)).
+Expected lines on macOS 27:
+
+```
+[yabai-sa] using CGSMoveManagedSpaceToDisplayIndex
+[yabai-sa] dock.spaces found at address …
+[yabai-sa] could not locate pointer to dppm! using CGSMoveManagedSpaceToDisplayIndex instead
+[yabai-sa] addSpace found at address …
+[yabai-sa] removeSpace found at address …
+```
+
+`could not locate pointer to dppm!`, `failed to get pointer to moveSpace
+function!` and the missing `setFrontWindow` hook are expected on 27.x — those
+Dock internals no longer exist and the CGS path replaces them (see
+[What this fork changes](#what-this-fork-changes)). If you see `could not
+resolve CGSMoveManagedSpaceToDisplayIndex` instead, space reordering will not
+work on this OS build.
 
 ## 9. Rebuilding after changes
 
@@ -216,6 +266,7 @@ It falls back to ad-hoc signing (with a warning) when `yabai-cert` is missing.
 | `missing required nvram boot-arg '-arm64e_preview_abi'` | You are running an upstream or older build. Use this fork's binary (the check is scoped to macOS < 14.4 here). |
 | `could not access accessibility features! abort..` | Grant Accessibility to the exact installed path (`/usr/local/bin/yabai`) and restart the service. |
 | `cannot create/destroy space due to an error with the scripting-addition` | The SA is not injected. Run `sudo /usr/local/bin/yabai --load-sa` and check `/tmp/yabai-sa_<user>.socket`. |
+| `space --move` / `--swap` / `window --space` returns success but nothing moves | The injected SA is old. `/usr/local/bin/yabai --uninstall-sa && sudo /usr/local/bin/yabai --load-sa`, then confirm the payload logs `using CGSMoveManagedSpaceToDisplayIndex`. |
 | SA stops working after Dock restarts | Ensure the `dock_did_restart` signal and the sudoers rule from §7.2 are in place. |
 | `yabai: service file … already installed!` | Run `yabai --uninstall-service` before `--install-service`, or simply use `--start-service`. |
 | `sudo: a password is required` in `/tmp/yabai_<user>.err.log` | The passwordless sudoers rule for `--load-sa` is missing or its path is wrong. |

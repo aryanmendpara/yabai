@@ -57,6 +57,7 @@ extern CGError SLSOrderWindow(int cid, uint32_t wid, int order, uint32_t rel_wid
 extern void SLSManagedDisplaySetCurrentSpace(int cid, CFStringRef display_ref, uint64_t sid);
 extern uint64_t SLSManagedDisplayGetCurrentSpace(int cid, CFStringRef display_ref);
 extern CFStringRef SLSCopyManagedDisplayForSpace(int cid, uint64_t sid);
+extern CFArrayRef SLSCopyManagedDisplaySpaces(int cid);
 extern void SLSMoveWindowsToManagedSpace(int cid, CFArrayRef window_list, uint64_t sid);
 extern void SLSShowSpaces(int cid, CFArrayRef space_list);
 extern void SLSHideSpaces(int cid, CFArrayRef space_list);
@@ -86,6 +87,13 @@ static uint64_t move_space_fp;
 static uint64_t set_front_window_fp;
 static uint64_t animation_time_addr;
 static bool macOSSequoia;
+
+//
+// NOTE: as of macOS 27.2 the Dock no longer exposes a moveSpace function (DPDesktopPictureManager is gone
+// as well). Space reordering is instead done through this CoreGraphics API, which the Dock itself calls
+// from its Swift DockCore code when spaces are rearranged in Mission Control.
+//
+static int (*cgs_move_managed_space_to_display_index_fp)(int cid, uint64_t sid, CFStringRef display_uuid, uint32_t index);
 
 static pthread_t daemon_thread;
 static int daemon_sockfd;
@@ -271,6 +279,11 @@ static void init_instances()
 
     uint64_t baseaddr = static_base_address() + image_slide();
 
+    cgs_move_managed_space_to_display_index_fp = dlsym(RTLD_DEFAULT, "CGSMoveManagedSpaceToDisplayIndex");
+    if (os_version.majorVersion >= 27) {
+        NSLog(@"[yabai-sa] %s CGSMoveManagedSpaceToDisplayIndex", cgs_move_managed_space_to_display_index_fp != NULL ? "using" : "could not resolve");
+    }
+
     uint64_t dock_spaces_addr = hex_find_seq(baseaddr + get_dock_spaces_offset(os_version), get_dock_spaces_pattern(os_version));
     if (dock_spaces_addr == 0) {
         dock_spaces = nil;
@@ -290,7 +303,7 @@ static void init_instances()
     uint64_t dppm_addr = hex_find_seq(baseaddr + get_dppm_offset(os_version), get_dppm_pattern(os_version));
     if (dppm_addr == 0) {
         dp_desktop_picture_manager = nil;
-        NSLog(@"[yabai-sa] could not locate pointer to dppm! moving spaces will not work!");
+        NSLog(@"[yabai-sa] could not locate pointer to dppm!%s", cgs_move_managed_space_to_display_index_fp != NULL ? " using CGSMoveManagedSpaceToDisplayIndex instead" : " moving spaces will not work!");
     } else {
 #ifdef __x86_64__
         uint32_t dppm_offset = *(int32_t *)dppm_addr;
@@ -351,7 +364,7 @@ static void init_instances()
 
     uint64_t move_space_addr = hex_find_seq(baseaddr + get_move_space_offset(os_version), get_move_space_pattern(os_version));
     if (move_space_addr == 0x0) {
-        NSLog(@"[yabai-sa] failed to get pointer to moveSpace function..");
+        NSLog(@"[yabai-sa] failed to get pointer to moveSpace function!%s", cgs_move_managed_space_to_display_index_fp != NULL ? " using CGSMoveManagedSpaceToDisplayIndex instead" : "");
         move_space_fp = 0;
     } else {
         NSLog(@"[yabai-sa] (0x%llx) moveSpace found at address 0x%llX (0x%llx)", baseaddr, move_space_addr, move_space_addr - baseaddr);
@@ -459,9 +472,55 @@ static inline id display_space_for_space_with_id(uint64_t space_id)
     return nil;
 }
 
+//
+// NOTE: returns the index (0-based, within the destination display) that a space needs to be moved to so
+// that it ends up directly after dest_space_id. The index is relative to the destination display's space
+// list with the source space removed, matching CGSMoveManagedSpaceToDisplayIndex's semantics.
+//
+static uint32_t managed_space_destination_index(CFStringRef display_uuid, uint64_t source_space_id, uint64_t dest_space_id)
+{
+    uint64_t space_ids[128];
+    int count = 0;
+
+    CFArrayRef display_spaces = SLSCopyManagedDisplaySpaces(SLSMainConnectionID());
+    if (display_spaces != NULL) {
+        for (CFIndex i = 0; i < CFArrayGetCount(display_spaces); ++i) {
+            CFDictionaryRef display = CFArrayGetValueAtIndex(display_spaces, i);
+            CFStringRef uuid = CFDictionaryGetValue(display, CFSTR("Display Identifier"));
+            if (uuid == NULL || !CFEqual(uuid, display_uuid)) continue;
+
+            CFArrayRef spaces = CFDictionaryGetValue(display, CFSTR("Spaces"));
+            if (spaces == NULL) break;
+
+            for (CFIndex j = 0; j < CFArrayGetCount(spaces) && count < 128; ++j) {
+                CFDictionaryRef space = CFArrayGetValueAtIndex(spaces, j);
+                CFNumberRef sid_ref = CFDictionaryGetValue(space, CFSTR("id64"));
+                if (sid_ref == NULL) continue;
+
+                int64_t sid = 0;
+                CFNumberGetValue(sid_ref, kCFNumberLongLongType, &sid);
+                if ((uint64_t) sid != source_space_id) {
+                    space_ids[count++] = (uint64_t) sid;
+                }
+            }
+            break;
+        }
+
+        CFRelease(display_spaces);
+    }
+
+    for (int i = 0; i < count; ++i) {
+        if (space_ids[i] == dest_space_id) {
+            return (uint32_t) (i + 1);
+        }
+    }
+
+    return (uint32_t) count;
+}
+
 static void do_space_move(char *message)
 {
-    if (dock_spaces == nil || dp_desktop_picture_manager == nil || move_space_fp == 0) return;
+    if (dock_spaces == nil && cgs_move_managed_space_to_display_index_fp == NULL) return;
 
     uint64_t source_space_id, dest_space_id, source_prev_space_id;
     unpack(source_space_id);
@@ -477,6 +536,61 @@ static void do_space_move(char *message)
     CFStringRef dest_display_uuid = SLSCopyManagedDisplayForSpace(SLSMainConnectionID(), dest_space_id);
     if (!dest_display_uuid) {
         CFRelease(source_display_uuid);
+        return;
+    }
+
+    if (cgs_move_managed_space_to_display_index_fp != NULL) {
+        id source_display_space = display_space_for_display_uuid(source_display_uuid);
+        id dest_display_space = display_space_for_display_uuid(dest_display_uuid);
+
+        if (source_prev_space_id) {
+            id new_source_space = space_for_display_with_id(source_display_uuid, source_prev_space_id);
+
+            NSArray *ns_source_space = @[ @(source_space_id) ];
+            NSArray *ns_dest_space = @[ @(source_prev_space_id) ];
+            SLSShowSpaces(SLSMainConnectionID(), (__bridge CFArrayRef) ns_dest_space);
+            SLSHideSpaces(SLSMainConnectionID(), (__bridge CFArrayRef) ns_source_space);
+            SLSManagedDisplaySetCurrentSpace(SLSMainConnectionID(), source_display_uuid, source_prev_space_id);
+            if (source_display_space != nil && new_source_space != nil) {
+                set_ivar_value(source_display_space, "_currentSpace", [new_source_space retain]);
+            }
+            [ns_dest_space release];
+            [ns_source_space release];
+        }
+
+        uint32_t dest_index = managed_space_destination_index(dest_display_uuid, source_space_id, dest_space_id);
+        cgs_move_managed_space_to_display_index_fp(SLSMainConnectionID(), source_space_id, dest_display_uuid, dest_index);
+
+        if (focus_dest_space) {
+            id dest_space = space_for_display_with_id(dest_display_uuid, source_space_id);
+
+            NSArray *ns_dest_monitor_space = @[ @(dest_space_id) ];
+            SLSHideSpaces(SLSMainConnectionID(), (__bridge CFArrayRef) ns_dest_monitor_space);
+            SLSManagedDisplaySetCurrentSpace(SLSMainConnectionID(), dest_display_uuid, source_space_id);
+            if (dest_display_space != nil && dest_space != nil) {
+                set_ivar_value(dest_display_space, "_currentSpace", [dest_space retain]);
+            }
+            [ns_dest_monitor_space release];
+
+            //
+            // NOTE: for cross-display moves the source display falls back to another space; keep its cached
+            // current space in sync so Dock does not animate against a stale space.
+            //
+            uint64_t new_source_space_id = SLSManagedDisplayGetCurrentSpace(SLSMainConnectionID(), source_display_uuid);
+            id new_source_space = space_for_display_with_id(source_display_uuid, new_source_space_id);
+            if (source_display_space != nil && new_source_space != nil) {
+                set_ivar_value(source_display_space, "_currentSpace", [new_source_space retain]);
+            }
+        }
+
+        CFRelease(source_display_uuid);
+        CFRelease(dest_display_uuid);
+        return;
+    }
+
+    if (dp_desktop_picture_manager == nil || move_space_fp == 0) {
+        CFRelease(source_display_uuid);
+        CFRelease(dest_display_uuid);
         return;
     }
 
