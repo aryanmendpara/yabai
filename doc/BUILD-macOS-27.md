@@ -84,10 +84,12 @@ the legacy SLS connection event (`1204`) that yabai used to detect Mission
 Control. A 500 ms poll of the on-screen window list now watches for Mission
 Control's chrome windows instead (`ExposeShieldWindow` at layer 19 and
 `Spaces Bar` at layer 14, owned by the `WindowManager` process; older releases
-used a Dock window at layer 18). This restores the "is Mission Control open?"
-guard and, more importantly, the window/space reconciliation that runs when it
-closes — without it, dragging a window to another space in Mission Control could
-leave a stale window↔space mapping until yabai was restarted. On macOS 27 the
+used a Dock window at layer 18). Space commands no longer refuse to run while
+Mission Control is open — the scripting-addition talks to SkyLight/Dock
+directly, so they work with Mission Control on screen. Detection is still used
+for the window/space reconciliation that runs when Mission Control closes —
+without it, dragging a window to another space could leave a stale window↔space
+mapping until yabai was restarted. On macOS 27 the
 poll is authoritative in both directions: when no chrome window is on screen it
 posts a (idempotent) exit, which also clears a mode that got stuck active. The
 layer-18 `Dock` fallback and chrome windows with zero alpha or no area are
@@ -292,6 +294,7 @@ It falls back to ad-hoc signing (with a warning) when `yabai-cert` is missing.
 | `space --move` / `--swap` / `window --space` returns success but nothing moves | The injected SA is old. `/usr/local/bin/yabai --uninstall-sa && sudo /usr/local/bin/yabai --load-sa`, then confirm the payload logs `using CGSMoveManagedSpaceToDisplayIndex`. |
 | SA stops working after Dock restarts | Ensure the `dock_did_restart` signal and the sudoers rule from §7.2 are in place. |
 | Window stuck at the screen edge after dragging it between spaces in Mission Control | Fixed in `v7.1.28-macos27.2`: Mission Control is detected by polling its chrome windows, and window/space membership is reconciled when it closes. |
+| `cannot … because mission-control is active.` while Mission Control is open | Fixed in `v7.1.28-macos27.5`: space commands run while Mission Control is open. Upgrade, reinstall (`make install`), run `yabai-sudoers`, and `yabai --restart-service`. |
 | `cannot … because mission-control is active.` while Mission Control is closed | Fixed in `v7.1.28-macos27.4`: the poll now clears a stuck Mission Control mode within 500 ms instead of only reacting to entering it. Upgrade, reinstall (`make install`), run `yabai-sudoers`, and `yabai --restart-service`. |
 | `yabai: service file … already installed!` | Run `yabai --uninstall-service` before `--install-service`, or simply use `--start-service`. |
 | `sudo: a password is required` in `/tmp/yabai_<user>.err.log` | The passwordless sudoers rule for `--load-sa` is missing or its path is wrong. |

@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [7.1.28-macos27.5] - 2026-11-04
+
+### Fixed
+- Space commands no longer return `cannot … because mission-control is active.` while Mission Control is open. The scripting-addition already performs every space operation through SkyLight/Dock, so the early `mission_control_is_active()` guards in `space_manager_focus_space` / `_switch_space` / `_add_space` / `_destroy_space` / `_move_space_to_space` / `_swap_space_with_space` / `_move_space_to_display` and in `display_manager_focus_space` were removed. `space --create` / `--destroy` / `--focus` / `--move` / `--swap`, `display --space`, and `window --space` / `--display` now take effect with Mission Control on screen. Mission Control detection is still used for the window/space reconciliation that runs when it closes.
+
+### Verified
+- macOS 27.2 `26B123`, Apple Silicon (`arm64e`), single display: with Mission Control open, `space --create`, `--destroy`, `--focus`, `--move`, `--swap`, `display --space`, and `window --space` succeed and update both the Dock and yabai's state; Mission Control stays open. The same operations also succeed through the actual `skhd` hotkeys (`c`, `d`, arrow keys). No `mission-control is active` errors remain in `/tmp/skhd_<user>.err.log`.
+
 ## [7.1.28-macos27.4] - 2026-11-04
 
 ### Fixed

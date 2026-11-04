@@ -800,9 +800,6 @@ static enum space_op_error space_manager_swap_space_with_space_on_display(uint32
 
 enum space_op_error space_manager_swap_space_with_space(uint64_t acting_sid, uint64_t selector_sid)
 {
-    bool is_in_mc = mission_control_is_active();
-    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
-
     uint32_t acting_did = space_display_id(acting_sid);
     uint32_t selector_did = space_display_id(selector_sid);
 
@@ -850,9 +847,6 @@ enum space_op_error space_manager_swap_space_with_space(uint64_t acting_sid, uin
 
 enum space_op_error space_manager_move_space_to_space(uint64_t acting_sid, uint64_t selector_sid)
 {
-    bool is_in_mc = mission_control_is_active();
-    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
-
     uint32_t acting_did = space_display_id(acting_sid);
     uint32_t selector_did = space_display_id(selector_sid);
 
@@ -890,8 +884,6 @@ enum space_op_error space_manager_move_space_to_space(uint64_t acting_sid, uint6
 
 enum space_op_error space_manager_move_space_to_display(struct space_manager *sm, uint64_t sid, uint32_t did)
 {
-    bool is_in_mc = mission_control_is_active();
-    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
     if (!sid)     return SPACE_OP_ERROR_MISSING_SRC;
 
     uint32_t s_did = space_display_id(sid);
@@ -984,9 +976,6 @@ bool space_manager_focus_space_using_gesture(uint32_t new_did, uint64_t new_sid)
 
 enum space_op_error space_manager_focus_space(uint64_t sid)
 {
-    bool is_in_mc = mission_control_is_active();
-    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
-
     uint64_t cur_sid = space_manager_active_space();
     if (cur_sid == sid) return SPACE_OP_ERROR_SAME_SPACE;
 
@@ -1010,9 +999,6 @@ enum space_op_error space_manager_focus_space(uint64_t sid)
 
 enum space_op_error space_manager_switch_space(uint64_t sid)
 {
-    bool is_in_mc = mission_control_is_active();
-    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
-
     uint64_t cur_sid = space_manager_active_space();
     if (cur_sid == sid) return SPACE_OP_ERROR_SAME_SPACE;
 
@@ -1036,9 +1022,6 @@ enum space_op_error space_manager_switch_space(uint64_t sid)
 
 enum space_op_error space_manager_destroy_space(uint64_t sid)
 {
-    bool is_in_mc = mission_control_is_active();
-    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
-
     if (!sid) return SPACE_OP_ERROR_MISSING_SRC;
     if (!space_is_user(sid)) return SPACE_OP_ERROR_INVALID_TYPE;
     if (space_manager_is_space_last_user_space(sid)) return SPACE_OP_ERROR_INVALID_SRC;
@@ -1061,8 +1044,6 @@ enum space_op_error space_manager_destroy_space(uint64_t sid)
 
 enum space_op_error space_manager_add_space(uint64_t sid)
 {
-    bool is_in_mc = mission_control_is_active();
-    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
     if (!sid)     return SPACE_OP_ERROR_MISSING_SRC;
 
     bool is_animating = display_manager_display_is_animating(space_display_id(sid));
