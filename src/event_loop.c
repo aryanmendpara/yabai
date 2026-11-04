@@ -1526,6 +1526,8 @@ static EVENT_HANDLER(MISSION_CONTROL_EXIT)
 {
     debug("%s:\n", __FUNCTION__);
 
+    if (!mission_control_is_active()) return;
+
     if (g_window_manager.menubar_opacity != 1.0f) {
         float alpha = space_is_fullscreen(g_space_manager.current_space_id) ? 1.0f : g_window_manager.menubar_opacity;
         SLSSetMenuBarInsetAndAlpha(g_connection, 0, 1, alpha);

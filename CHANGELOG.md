@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [7.1.28-macos27.4] - 2026-11-04
+
+### Fixed
+- Space commands could stay blocked with `cannot create/destroy/move space because mission-control is active.` after Mission Control had been closed, until yabai was restarted; focusing a different space failed the same way, while focusing the space that was already active still worked. The 500 ms Mission Control poll now drives the state in both directions instead of only reacting to `false → true`: on macOS 27 an absent chrome window posts `mission_control_exit`, so a mode that got stuck active (or a spurious enter) is cleared on the next tick. `mission_control_exit` is also idempotent now.
+- The legacy layer-18 `Dock` window is no longer treated as Mission Control chrome on macOS 27, and chrome windows with zero alpha or no area are ignored. Either could keep the poll reporting Mission Control as visible after it had closed.
+
+### Verified
+- macOS 27.2 `26B123`, Apple Silicon (`arm64e`), single display: space create/destroy/move/focus by index/`next`/`prev`, `window --space`, and repeated Mission Control open/close cycles, both from the CLI and through the actual `skhd` hotkeys. `space --create` is correctly rejected while Mission Control is open and works again immediately after it closes; no `mission-control is active` errors remain in `/tmp/skhd_<user>.err.log`.
+
 ## [7.1.28-macos27.3] - 2026-11-04
 
 ### Added

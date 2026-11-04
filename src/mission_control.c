@@ -114,9 +114,12 @@ static inline bool mission_control_is_active(void)
 // NOTE: The Dock no longer exposes Mission Control through AX notifications (kAXExpose*)
 // or the old SLS connection event on macOS 27, so fall back to detecting the chrome
 // windows that Mission Control puts on screen. Older systems render them from the Dock
-// at layer 18, newer systems render them from the WindowManager process at layer 19
+// at layer 18, macOS 27 renders them from the WindowManager process at layer 19
 // (ExposeShieldWindow) and layer 14 (Spaces Bar).
 //
+
+static bool g_mission_control_poll_authoritative = false;
+static bool g_mission_control_dock_chrome = true;
 
 static bool mission_control_is_visible(void)
 {
@@ -138,12 +141,28 @@ static bool mission_control_is_visible(void)
         uint64_t layer = 0;
         CFNumberGetValue(layer_ref, CFNumberGetType(layer_ref), &layer);
 
+        //
+        // NOTE: ignore windows that are not actually rendered. Mission Control chrome
+        // that lingers in the window list with zero alpha or no area used to be treated
+        // as visible and left mission control mode stuck on.
+        //
+
+        CFNumberRef alpha_ref = CFDictionaryGetValue(dictionary, kCGWindowAlpha);
+        double alpha = 1.0;
+        if (alpha_ref) CFNumberGetValue(alpha_ref, kCFNumberDoubleType, &alpha);
+        if (alpha <= 0.01) continue;
+
+        CFDictionaryRef bounds_dict = CFDictionaryGetValue(dictionary, kCGWindowBounds);
+        CGRect bounds = CGRectZero;
+        if (bounds_dict) CGRectMakeWithDictionaryRepresentation(bounds_dict, &bounds);
+        if (bounds.size.width <= 1 || bounds.size.height <= 1) continue;
+
         if (CFEqual(owner, CFSTR("WindowManager")) && (layer == 19 || layer == 14)) {
             found = true;
             break;
         }
 
-        if (CFEqual(owner, CFSTR("Dock")) && layer == 18) {
+        if (g_mission_control_dock_chrome && CFEqual(owner, CFSTR("Dock")) && layer == 18) {
             found = true;
             break;
         }
@@ -156,14 +175,22 @@ static bool mission_control_is_visible(void)
 static void mission_control_poll(void *context)
 {
     (void)context;
-    static bool was_visible = false;
 
     bool visible = mission_control_is_visible();
-    if (visible == was_visible) return;
+    bool active = mission_control_is_active();
 
-    was_visible = visible;
-    if (visible) {
+    //
+    // NOTE: compare the actual state against the detected state instead of tracking
+    // transitions. On macOS 27 the poll is the only source of truth, so a mode that
+    // got stuck active (or a spurious enter) is corrected on the next tick.
+    //
+
+    if (!active && visible) {
+        debug("MC-POLL: enter\n");
         event_loop_post(&g_event_loop, MISSION_CONTROL_ENTER, NULL, 0);
+    } else if (active && !visible && (g_mission_control_poll_authoritative || g_mission_control_mode == MISSION_CONTROL_MODE_SHOW)) {
+        debug("MC-POLL: exit\n");
+        event_loop_post(&g_event_loop, MISSION_CONTROL_EXIT, NULL, 0);
     }
 }
 
@@ -171,6 +198,10 @@ void mission_control_poll_begin(void)
 {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
+        NSOperatingSystemVersion os_version = [[NSProcessInfo processInfo] operatingSystemVersion];
+        g_mission_control_poll_authoritative = os_version.majorVersion >= 27;
+        g_mission_control_dock_chrome = os_version.majorVersion < 27;
+
         dispatch_queue_t queue = dispatch_queue_create("yabai.mission_control", DISPATCH_QUEUE_SERIAL);
         dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
         dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, 0), 500ull * NSEC_PER_MSEC, 50ull * NSEC_PER_MSEC);
