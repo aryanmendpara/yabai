@@ -5,20 +5,33 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-### Added
-- Moving the cursor onto a display now focuses that display (focus follows the cursor across displays), without warping the cursor
-- macOS 27 Apple Silicon scripting-addition offsets for *dock.spaces*, *dppm*, *add_space*, *remove_space*, *move_space* and animation-time hooks
-- `scripts/deploy.sh`: build, sign, install and reload a locally built yabai
-- Step-by-step build guide for macOS 27.0: [`doc/BUILD-macOS-27.md`](doc/BUILD-macOS-27.md)
 
-### Changed
-- Fixed scripting-addition space creation, destruction and focus on macOS 27.2 (`26B123`): corrected Dock search offsets/patterns, added the `currentSpaceForDisplay:` fallback, guarded stale space ids, and stopped requiring the removed `dppm`/`move_space` targets during validation
+## [7.1.28] - 2026-11-04
+
+### Added
+- Focus follows the cursor across displays: moving the cursor onto a display now focuses that display without warping the cursor
+- macOS 27 Apple Silicon scripting-addition offsets for *dock.spaces*, *dppm*, *add_space*, *remove_space*, *move_space* and the animation-time hook
+- `scripts/deploy.sh`: build, sign, install and reload a locally built yabai
+- Step-by-step macOS 27 build guide: [`doc/BUILD-macOS-27.md`](doc/BUILD-macOS-27.md)
+
+### Fixed
+- macOS 27.2 (`26B123`) scripting-addition support:
+  - Corrected the Dock search starts to `dock.spaces` `0x20000`, `add_space`/animation-time `0x160000` and `remove_space` `0x120000`. The functions moved before the old starts, and `hex_find_seq` only scans forward, so no target was found and space commands silently became no-ops.
+  - Wildcarded the first instruction of the `add_space` and `remove_space` patterns so they match both the `arm64e` (`pacibsp`) and `arm64e.x1` (`pacibsppc`) slices.
+  - Space focus now falls back from the removed `currentSpaceForDisplayUUID:` selector to `displayForSPID:` + `currentSpaceForDisplay:`. Older macOS releases keep the original selector.
+  - Stopped resolving `DPDesktopPictureManager`, the Dock-side `move_space` routine and `set_front_window` on macOS 27, where they no longer exist. Focus, create, destroy and moving windows between spaces work; moving spaces between displays remains unavailable.
+  - Added `NULL`/`nil` guards around `SLSCopyManagedDisplayForSpace` and Dock space lookups so a space that disappears mid-request cannot crash Dock.
+  - Client validation now requires only the attributes macOS 27 still provides (`DOCK_SPACES`, `ADD_SPACE`, `REM_SPACE`, `ANIM_TIME`) instead of reporting a false failure when `dppm`/`move_space` are unavailable.
+  - Bumped the scripting-addition payload to `2.1.32` so an older installed payload is replaced on the next load.
 - `mouse_follows_focus` now warps the cursor only when focus crosses a display boundary; same-display focus changes leave the cursor untouched
 - Fixed new windows opening on the wrong display when `window_origin_display` is set to `focused` (or `cursor`): a new window is now physically moved to the origin space instead of only being tiled within the space the system created it on
 - Fixed the main binary not recognizing macOS 27, which silently disabled Mission Control observation, the space/window connection notifications (1327/1328/804) and the Tahoe window sub-level query; macOS 27 is now treated as Tahoe-compatible
 - Fixed scripting-addition failing to load on macOS 14.4+/26/27 when the `-arm64e_preview_abi` boot-arg is missing or cannot be set [#2741](https://github.com/asmvik/yabai/issues/2741)
 - Fixed scripting-addition *add_space* pattern for macOS 26.6 Apple Silicon arm64 [#2799](https://github.com/asmvik/yabai/issues/2799)
 - Fixed minor memory leak on space destruction, and added a few missing null checks to SkyLight API calls [#2791](https://github.com/asmvik/yabai/issues/2791)
+
+### Verified
+- macOS 27.2 `26B123`, Apple Silicon (`arm64e`): payload `2.1.32` reports attributes `0x4D`; space focus, create, destroy and moving windows between spaces tested. The `arm64e.x1` slice was validated statically only.
 
 ## [7.1.25] - 2026-05-08
 ### Changed
