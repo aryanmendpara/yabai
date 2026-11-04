@@ -1511,33 +1511,7 @@ static EVENT_HANDLER(MISSION_CONTROL_CHECK_FOR_EXIT)
 {
     if (!mission_control_is_active()) return;
 
-    CFArrayRef window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, 0);
-    int window_count = CFArrayGetCount(window_list);
-    bool found = false;
-
-    for (int i = 0; i < window_count; ++i) {
-        CFDictionaryRef dictionary = CFArrayGetValueAtIndex(window_list, i);
-
-        CFStringRef name = CFDictionaryGetValue(dictionary, kCGWindowName);
-        if (name) continue;
-
-        CFStringRef owner = CFDictionaryGetValue(dictionary, kCGWindowOwnerName);
-        if (!owner) continue;
-
-        CFNumberRef layer_ref = CFDictionaryGetValue(dictionary, kCGWindowLayer);
-        if (!layer_ref) continue;
-
-        uint64_t layer = 0;
-        CFNumberGetValue(layer_ref, CFNumberGetType(layer_ref), &layer);
-        if (layer != 18) continue;
-
-        if (CFEqual(CFSTR("Dock"), owner)) {
-            found = true;
-            break;
-        }
-    }
-
-    if (found) {
+    if (mission_control_is_visible()) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.1f * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             event_loop_post(&g_event_loop, MISSION_CONTROL_CHECK_FOR_EXIT, NULL, 0);
         });
@@ -1546,8 +1520,6 @@ static EVENT_HANDLER(MISSION_CONTROL_CHECK_FOR_EXIT)
             event_loop_post(&g_event_loop, MISSION_CONTROL_EXIT, NULL, 0);
         });
     }
-
-    CFRelease(window_list);
 }
 
 static EVENT_HANDLER(MISSION_CONTROL_EXIT)

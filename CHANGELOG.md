@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [7.1.28-macos27.2] - 2026-11-04
+
+### Fixed
+- Dragging a window to another space in Mission Control could leave it stuck at the screen edge (and the layout behind it wrong) until yabai was restarted. On macOS 27 the Dock no longer sends the AX `kAXExpose*` notifications or the legacy SLS connection event (`1204`) yabai used to detect Mission Control, so yabai never entered Mission Control mode and never ran `window_manager_correct_for_mission_control_changes` on exit. Mission Control is now detected by polling the on-screen window list for its chrome windows (`ExposeShieldWindow` layer 19 / `Spaces Bar` layer 14 owned by `WindowManager`; layer 18 Dock window on older releases).
+
+### Verified
+- macOS 27.2 `26B123`, Apple Silicon (`arm64e`), single display: entering and leaving Mission Control fires `mission_control_enter` / `mission_control_exit` again, the reconciliation pass runs on exit, and dragging a window between spaces no longer leaves it stuck. Space focus and the space reordering fix from `7.1.28-macos27.1` still work.
+
 ## [7.1.28-macos27.1] - 2026-11-04
 
 ### Fixed

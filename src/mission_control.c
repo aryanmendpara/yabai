@@ -109,3 +109,72 @@ static inline bool mission_control_is_active(void)
 {
     return g_mission_control_mode != MISSION_CONTROL_MODE_INACTIVE;
 }
+
+//
+// NOTE: The Dock no longer exposes Mission Control through AX notifications (kAXExpose*)
+// or the old SLS connection event on macOS 27, so fall back to detecting the chrome
+// windows that Mission Control puts on screen. Older systems render them from the Dock
+// at layer 18, newer systems render them from the WindowManager process at layer 19
+// (ExposeShieldWindow) and layer 14 (Spaces Bar).
+//
+
+static bool mission_control_is_visible(void)
+{
+    CFArrayRef window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
+    if (!window_list) return false;
+
+    bool found = false;
+    int window_count = CFArrayGetCount(window_list);
+
+    for (int i = 0; i < window_count; ++i) {
+        CFDictionaryRef dictionary = CFArrayGetValueAtIndex(window_list, i);
+
+        CFStringRef owner = CFDictionaryGetValue(dictionary, kCGWindowOwnerName);
+        if (!owner) continue;
+
+        CFNumberRef layer_ref = CFDictionaryGetValue(dictionary, kCGWindowLayer);
+        if (!layer_ref) continue;
+
+        uint64_t layer = 0;
+        CFNumberGetValue(layer_ref, CFNumberGetType(layer_ref), &layer);
+
+        if (CFEqual(owner, CFSTR("WindowManager")) && (layer == 19 || layer == 14)) {
+            found = true;
+            break;
+        }
+
+        if (CFEqual(owner, CFSTR("Dock")) && layer == 18) {
+            found = true;
+            break;
+        }
+    }
+
+    CFRelease(window_list);
+    return found;
+}
+
+static void mission_control_poll(void *context)
+{
+    (void)context;
+    static bool was_visible = false;
+
+    bool visible = mission_control_is_visible();
+    if (visible == was_visible) return;
+
+    was_visible = visible;
+    if (visible) {
+        event_loop_post(&g_event_loop, MISSION_CONTROL_ENTER, NULL, 0);
+    }
+}
+
+void mission_control_poll_begin(void)
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        dispatch_queue_t queue = dispatch_queue_create("yabai.mission_control", DISPATCH_QUEUE_SERIAL);
+        dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
+        dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, 0), 500ull * NSEC_PER_MSEC, 50ull * NSEC_PER_MSEC);
+        dispatch_source_set_event_handler(timer, ^{ mission_control_poll(NULL); });
+        dispatch_resume(timer);
+    });
+}

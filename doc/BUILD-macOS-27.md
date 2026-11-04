@@ -79,9 +79,15 @@ Four things differ from upstream `asmvik/yabai`:
    computed, restoring the Tahoe behaviour. If Apple changes one of these APIs
    in a later 27.x build, this is the first place to look.
 
-Note: yabai's `mission_control_is_active()` relies on the AX notification for
-Mission Control, which no longer fires on macOS 27. Mission Control itself
-still works; yabai only loses the "is Mission Control open?" guard.
+Note: on macOS 27 the Dock no longer sends either the AX expose notifications or
+the legacy SLS connection event (`1204`) that yabai used to detect Mission
+Control. A 500 ms poll of the on-screen window list now watches for Mission
+Control's chrome windows instead (`ExposeShieldWindow` at layer 19 and
+`Spaces Bar` at layer 14, owned by the `WindowManager` process; older releases
+used a Dock window at layer 18). This restores the "is Mission Control open?"
+guard and, more importantly, the window/space reconciliation that runs when it
+closes — without it, dragging a window to another space in Mission Control could
+leave a stale window↔space mapping until yabai was restarted.
 
 ## Prerequisites
 
@@ -268,6 +274,7 @@ It falls back to ad-hoc signing (with a warning) when `yabai-cert` is missing.
 | `cannot create/destroy space due to an error with the scripting-addition` | The SA is not injected. Run `sudo /usr/local/bin/yabai --load-sa` and check `/tmp/yabai-sa_<user>.socket`. |
 | `space --move` / `--swap` / `window --space` returns success but nothing moves | The injected SA is old. `/usr/local/bin/yabai --uninstall-sa && sudo /usr/local/bin/yabai --load-sa`, then confirm the payload logs `using CGSMoveManagedSpaceToDisplayIndex`. |
 | SA stops working after Dock restarts | Ensure the `dock_did_restart` signal and the sudoers rule from §7.2 are in place. |
+| Window stuck at the screen edge after dragging it between spaces in Mission Control | Fixed in `v7.1.28-macos27.2`: Mission Control is detected by polling its chrome windows, and window/space membership is reconciled when it closes. |
 | `yabai: service file … already installed!` | Run `yabai --uninstall-service` before `--install-service`, or simply use `--start-service`. |
 | `sudo: a password is required` in `/tmp/yabai_<user>.err.log` | The passwordless sudoers rule for `--load-sa` is missing or its path is wrong. |
 

@@ -321,6 +321,13 @@ int main(int argc, char **argv)
             workspace_is_macos_tahoe()) {
             SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1327, NULL);
             SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1328, NULL);
+
+            //
+            // NOTE: AX expose notifications no longer fire on macOS 27, so poll for the
+            // Mission Control chrome windows to detect entering and leaving it.
+            //
+
+            mission_control_poll_begin();
         }
     } else {
         SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1204, NULL);
