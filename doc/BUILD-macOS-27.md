@@ -198,12 +198,24 @@ and injects the payload into Dock.app. On success a socket appears at
 
 On macOS 27, Dock does **not** automatically load the SA, so it has to be
 re-injected after every login and whenever Dock restarts. The standard yabai
-approach is a signal plus a passwordless sudo rule:
+approach is a signal plus a passwordless sudo rule.
 
-Add a sudoers rule (validate before installing):
+The rule pins the sha256 of the installed binary, so it needs refreshing after
+every upgrade (a stale rule makes the service fail with `sudo: a password is
+required`). The `yabai-sudoers` helper does both steps in one go — writing the
+rule for the current binary and reloading the SA:
 
 ```
-echo "$(id -un) ALL=(root) NOPASSWD: /usr/local/bin/yabai --load-sa" | sudo tee /tmp/yabai-sudoers
+yabai-sudoers          # from a Homebrew install
+sudo scripts/install-sudoers.sh   # from a source checkout
+```
+
+Re-run it after upgrading yabai. Pass `--no-load` to only write the rule.
+
+Or add the rule by hand (validate before installing):
+
+```
+echo "$(id -un) ALL=(root) NOPASSWD: sha256:$(shasum -a 256 /usr/local/bin/yabai | cut -d ' ' -f 1) /usr/local/bin/yabai --load-sa" | sudo tee /tmp/yabai-sudoers
 sudo visudo -cf /tmp/yabai-sudoers && sudo install -m 440 -o root -g wheel /tmp/yabai-sudoers /private/etc/sudoers.d/yabai
 ```
 
